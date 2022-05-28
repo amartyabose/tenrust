@@ -9,6 +9,9 @@ pub enum TenRustError {
     #[error("Dimension mismatch: {0}")]
     DimensionMismatch(&'static str),
     #[error("Shape error.")]
-    ShapeError(#[from] ndarray::ShapeError)
+    ShapeError(#[from] ndarray::ShapeError),
+    #[error("Linalg error")]
+    LinalgError(#[from] ndarray_linalg::error::LinalgError),
+    #[error("SVD error")]
+    SVDError,
 }
-

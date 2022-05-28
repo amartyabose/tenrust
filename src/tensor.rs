@@ -4,6 +4,8 @@ use crate::index::*;
 use std::collections::HashSet;
 
 use ndarray::*;
+use ndarray_linalg::Lapack;
+use ndarray_linalg::SVD;
 use num::Num;
 
 #[derive(Debug)]
@@ -42,6 +44,55 @@ impl<T: 'static + Clone + Copy + Num> Tensor<T> {
         Ok(self)
     }
 
+    fn data_as_matrix_given_rows(&self, row_inds: &[&Index]) -> (Array<T, Ix2>, Vec<Index>) {
+        let mut my_inds_order = Vec::new();
+        let mut my_rows = 1;
+        for ind in row_inds {
+            my_rows *= ind.dim;
+            if let Some(loc) = self.indices.iter().position(|x| x == *ind) {
+                my_inds_order.push(loc);
+            }
+        }
+        let mut my_cols: u64 = 1;
+        let mut cols = Vec::new();
+        for (loc, ind) in (&self.indices).iter().enumerate() {
+            if !row_inds.contains(&ind) {
+                cols.push(ind);
+                my_inds_order.push(loc);
+                my_cols *= ind.dim;
+            }
+        }
+        let my_data = self.data.clone().permuted_axes(&my_inds_order[..]);
+        (
+            Array::from_iter(my_data.iter().cloned())
+                .into_shape(Ix2(my_rows as usize, my_cols as usize))
+                .unwrap(),
+            cols.iter().map(|x| (*x).clone()).collect::<Vec<_>>(),
+        )
+    }
+
+    fn data_as_matrix(&self, row_inds: &[Index], col_inds: &[Index]) -> Array<T, Ix2> {
+        let mut my_inds_order = Vec::new();
+        let mut my_rows = 1;
+        for ind in row_inds {
+            my_rows *= ind.dim;
+            if let Some(loc) = self.indices.iter().position(|x| x == ind) {
+                my_inds_order.push(loc);
+            }
+        }
+        let mut my_cols: u64 = 1;
+        for ind in col_inds {
+            my_cols *= ind.dim;
+            if let Some(loc) = self.indices.iter().position(|x| x == ind) {
+                my_inds_order.push(loc);
+            }
+        }
+        let my_data = self.data.clone().permuted_axes(&my_inds_order[..]);
+        Array::from_iter(my_data.iter().cloned())
+            .into_shape(Ix2(my_rows as usize, my_cols as usize))
+            .unwrap()
+    }
+
     pub fn dot(&self, other: &Tensor<T>) -> Result<Tensor<T>> {
         let self_inds = self.indices.iter().cloned().collect::<HashSet<_>>();
         let other_inds = other.indices.iter().cloned().collect::<HashSet<_>>();
@@ -58,41 +109,8 @@ impl<T: 'static + Clone + Copy + Num> Tensor<T> {
             .cloned()
             .collect::<Vec<_>>();
 
-        let mut my_inds_order = Vec::new();
-        let mut my_rows = 1;
-        for ind in &self_extra {
-            my_rows *= ind.dim;
-            if let Some(loc) = self.indices.iter().position(|x| x == ind) {
-                my_inds_order.push(loc);
-            }
-        }
-        let mut other_inds_order = Vec::new();
-        let mut my_cols = 1;
-        for ind in &common_inds {
-            my_cols *= ind.dim;
-            if let Some(loc) = self.indices.iter().position(|x| x == ind) {
-                my_inds_order.push(loc);
-            }
-            if let Some(loc) = other.indices.iter().position(|x| x == ind) {
-                other_inds_order.push(loc);
-            }
-        }
-        let mut other_cols = 1;
-        for ind in &other_extra {
-            other_cols *= ind.dim;
-            if let Some(loc) = other.indices.iter().position(|x| x == ind) {
-                other_inds_order.push(loc);
-            }
-        }
-
-        let my_data = self.data.clone().permuted_axes(&my_inds_order[..]);
-        // let my_data = my_data.permuted_axes(&my_inds_order[..]);
-        let my_data = Array::from_iter(my_data.iter().cloned())
-            .into_shape([my_rows as usize, my_cols as usize])?;
-        let other_data = other.data.clone().permuted_axes(&other_inds_order[..]);
-        // let other_data = other_data.permuted_axes(&other_inds_order[..]);
-        let other_data = Array::from_iter(other_data.iter().cloned())
-            .into_shape([my_cols as usize, other_cols as usize])?;
+        let my_data = self.data_as_matrix(&self_extra[..], &common_inds[..]);
+        let other_data = other.data_as_matrix(&common_inds[..], &other_extra[..]);
         let result_data = my_data.dot(&other_data);
         let mut indices = Vec::new();
         for inds in &self_extra {
@@ -103,6 +121,75 @@ impl<T: 'static + Clone + Copy + Num> Tensor<T> {
         }
 
         Tensor::new(&indices[..]).with_data_from_iter(result_data.iter().cloned())
+    }
+}
+
+pub struct TensorSVD<T: 'static + Clone + Copy + Num + Lapack> {
+    utensor: Tensor<T>,
+    stensor: Tensor<<T as ndarray_linalg::Scalar>::Real>,
+    v_trans_tensor: Tensor<T>,
+}
+
+impl<T: 'static + Clone + Copy + Num + Lapack> TensorSVD<T> {
+    pub fn new(
+        uparam: Tensor<T>,
+        sparam: Tensor<<T as ndarray_linalg::Scalar>::Real>,
+        vparam: Tensor<T>,
+    ) -> TensorSVD<T> {
+        TensorSVD {
+            utensor: uparam,
+            stensor: sparam,
+            v_trans_tensor: vparam,
+        }
+    }
+}
+
+impl<T: 'static + Clone + Copy + Num + Lapack> Tensor<T> {
+    pub fn svd(&self, row_inds: &[&Index]) -> Result<TensorSVD<T>> {
+        let (mat, col_inds) = self.data_as_matrix_given_rows(row_inds);
+        let svddat = mat.svd(true, true)?;
+        let (uopt, sdiag, vtopt) = svddat;
+        let umat = uopt.ok_or(TenRustError::SVDError)?;
+        let vmat = vtopt.ok_or(TenRustError::SVDError)?;
+        // We want minimum storage in case of non-square matrices:
+        // A = [[1, 2, 3],
+        //      [4, 5, 6]]
+        // Then using Mathematica:
+        // U is a 2x2 matrix
+        // S = [[9.5, 0.0, 0.0],
+        //      [0.0, 0.77, 0.0]]
+        // V is consequently a 3x3 matrix.
+        // Notice that the last row of V is inconsequential because the last column of S, which multiplies it is all 0.
+        // So the real dimensionality is governed by the number of non-zero singular values.
+        let linkdim0 = sdiag.shape()[0] as u64;
+        let linkind0 = Index::new(linkdim0).add_tag("S_Link");
+        let linkdim1 = linkdim0;
+        let linkind1 = Index::new(linkdim1).add_tag("S_Link");
+        let mut row_inds_vec = row_inds.to_vec();
+        row_inds_vec.push(&linkind0);
+        let utensor = Tensor::<T>::new(&row_inds_vec[..]).with_data_from_iter(
+            umat.slice_axis(Axis(1), Slice::from(0..linkdim0 as i32))
+                .iter()
+                .copied(),
+        )?;
+        let mut stensor =
+            Tensor::<<T as ndarray_linalg::Scalar>::Real>::new(&[&linkind0, &linkind1]);
+        for (ind, sval) in sdiag.iter().enumerate() {
+            let i0val = IndexVal::new(&linkind0, ind as u64)?;
+            let i1val = IndexVal::new(&linkind1, ind as u64)?;
+            stensor[&[i0val, i1val]] = *sval;
+        }
+        dbg!(&stensor);
+        let mut col_inds_vec = vec![&linkind1];
+        for inds in &col_inds {
+            col_inds_vec.push(inds);
+        }
+        let vtensor = Tensor::<T>::new(&col_inds_vec[..]).with_data_from_iter(
+            vmat.slice_axis(Axis(0), Slice::from(0..linkdim0 as i32))
+                .iter()
+                .copied(),
+        )?;
+        Ok(TensorSVD::<T>::new(utensor, stensor, vtensor))
     }
 }
 
@@ -143,76 +230,4 @@ impl<T: 'static + Clone + Copy + Num> std::ops::IndexMut<&[IndexVal]> for Tensor
 }
 
 #[cfg(test)]
-mod tensor_tests {
-    use ndarray_linalg::assert_close_l2;
-
-    use crate::tensor::*;
-
-    #[test]
-    fn build_zero_tesor() {
-        let i = Index::new(2);
-        let j = Index::new(3);
-        let atensor = Tensor::<f64>::new(&[&i, &j]);
-
-        assert_eq!(atensor.indices.len(), 2);
-        assert_eq!(atensor.data.shape(), [i.dim as usize, j.dim as usize]);
-    }
-
-    #[test]
-    fn build_tensor_with_data() {
-        let i = Index::new(2);
-        let j = Index::new(3);
-        let atensor_res = Tensor::<f64>::new(&[&i, &j]).with_data(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
-
-        assert!(atensor_res.is_ok());
-        let atensor = atensor_res.unwrap();
-        assert_eq!(atensor.indices.len(), 2);
-        assert_eq!(atensor.data.shape(), [i.dim as usize, j.dim as usize]);
-    }
-
-    #[test]
-    fn build_tensor_with_data_fail() {
-        let i = Index::new(2);
-        let j = Index::new(3);
-        let atensor_res =
-            Tensor::<f64>::new(&[&i, &j]).with_data(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]);
-
-        assert!(atensor_res.is_err());
-    }
-
-    #[test]
-    fn access_tensor_elements() -> Result<()> {
-        let i = Index::new(2);
-        let j = Index::new(3);
-        let atensor = Tensor::<f64>::new(&[&i, &j]).with_data(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0])?;
-
-        assert_eq!(
-            atensor[&[IndexVal::new(&i, 0)?, IndexVal::new(&j, 0)?]],
-            1.0
-        );
-        assert_eq!(
-            atensor[&[IndexVal::new(&i, 1)?, IndexVal::new(&j, 0)?]],
-            4.0
-        );
-        assert_eq!(
-            atensor[&[IndexVal::new(&i, 0)?, IndexVal::new(&j, 1)?]],
-            2.0
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn multiply_tenrust() -> Result<()> {
-        let i = Index::new(2);
-        let j = Index::new(3);
-        let k = Index::new(2);
-        let atensor = Tensor::<f64>::new(&[&i, &j]).with_data(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0])?;
-        let btensor = Tensor::<f64>::new(&[&j, &k]).with_data(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0])?;
-        let ctensor = atensor.dot(&btensor)?;
-        let anses = vec![22.0, 28.0, 49.0, 64.0];
-        let ans = ndarray::Array::from(anses);
-        let ans = ans.into_shape(IxDyn(&[2, 2]))?;
-        assert_close_l2!(&ctensor.data, &ans, 1e-12);
-        Ok(())
-    }
-}
+mod tensor_tests;

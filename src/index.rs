@@ -99,6 +99,11 @@ mod indexval_tests {
         assert!(ival.is_ok());
         let ival_unwrapped = ival.unwrap();
         assert_eq!(ival_unwrapped.index.id, i.id);
+    }
+
+    #[test]
+    fn set_indexval_fail() {
+        let i = Index::new(2);
         let wrong_ival = IndexVal::new(&i, 5);
         assert!(wrong_ival.is_err());
     }
