@@ -28,6 +28,18 @@ impl<T: 'static + Clone + Copy + Num> Tensor<T> {
         }
     }
 
+    pub fn new_owned(indices: &[Index]) -> Tensor<T> {
+        let shape_vec = indices
+            .iter()
+            .map(|x| x.dim as usize)
+            .collect::<Vec<usize>>();
+        let shape = &shape_vec[..shape_vec.len()];
+        Tensor {
+            indices: indices.to_vec(),
+            data: ArrayD::<T>::zeros(IxDyn(shape)),
+        }
+    }
+
     pub fn with_data(mut self, dat: &[T]) -> Result<Tensor<T>> {
         if dat.len() as usize == self.data.len() {
             let tmp = Array::<T, Ix1>::from_iter(dat.iter().cloned());
@@ -171,9 +183,31 @@ impl<T: 'static + Clone + Copy + Num + Lapack> TensorSVD<T> {
     }
 }
 
+pub enum SVDIndices<'a> {
+    Rows(&'a [&'a Index]),
+    Cols(&'a [&'a Index]),
+}
+
 impl<T: 'static + Clone + Copy + Num + Lapack> Tensor<T> {
-    pub fn svd(&self, row_inds: &[&Index]) -> Result<TensorSVD<T>> {
-        let (mat, col_inds) = self.data_as_matrix_given_rows(row_inds);
+    pub fn untruncated_svd(&self, svd_inds: SVDIndices) -> Result<TensorSVD<T>> {
+        let (mat, mut row_inds, mut col_inds) = match svd_inds {
+            SVDIndices::Rows(rows) => {
+                let (m, cols) = self.data_as_matrix_given_rows(rows);
+                (
+                    m,
+                    rows.iter().map(|x| (*x).clone()).collect::<Vec<_>>(),
+                    cols,
+                )
+            }
+            SVDIndices::Cols(cols) => {
+                let (m, rows) = self.data_as_matrix_given_cols(cols);
+                (
+                    m,
+                    rows,
+                    cols.iter().map(|x| (*x).clone()).collect::<Vec<_>>(),
+                )
+            }
+        };
         let svddat = mat.svd(true, true)?;
         let (uopt, sdiag, vtopt) = svddat;
         let umat = uopt.ok_or(TenRustError::SVDError)?;
@@ -192,9 +226,8 @@ impl<T: 'static + Clone + Copy + Num + Lapack> Tensor<T> {
         let linkind0 = Index::new(linkdim0).add_tag("S_Link");
         let linkdim1 = linkdim0;
         let linkind1 = Index::new(linkdim1).add_tag("S_Link");
-        let mut row_inds_vec = row_inds.to_vec();
-        row_inds_vec.push(&linkind0);
-        let utensor = Tensor::<T>::new(&row_inds_vec[..]).with_data_from_iter(
+        row_inds.push(linkind0.clone());
+        let utensor = Tensor::<T>::new_owned(&row_inds).with_data_from_iter(
             umat.slice_axis(Axis(1), Slice::from(0..linkdim0 as i32))
                 .iter()
                 .copied(),
@@ -206,12 +239,8 @@ impl<T: 'static + Clone + Copy + Num + Lapack> Tensor<T> {
             let i1val = IndexVal::new(&linkind1, ind as u64)?;
             stensor[&[i0val, i1val]] = *sval;
         }
-        dbg!(&stensor);
-        let mut col_inds_vec = vec![&linkind1];
-        for inds in &col_inds {
-            col_inds_vec.push(inds);
-        }
-        let vtensor = Tensor::<T>::new(&col_inds_vec[..]).with_data_from_iter(
+        col_inds.insert(0, linkind1);
+        let vtensor = Tensor::<T>::new_owned(&col_inds).with_data_from_iter(
             vmat.slice_axis(Axis(0), Slice::from(0..linkdim0 as i32))
                 .iter()
                 .copied(),

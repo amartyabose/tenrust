@@ -96,7 +96,7 @@ fn multiply_tenrust() -> Result<()> {
 }
 
 #[test]
-fn svd_tenrust() -> Result<()> {
+fn untruncated_svd_tenrust_normal() -> Result<()> {
     let i = Index::new(2);
     let j = Index::new(4);
     let atensor =
@@ -105,8 +105,28 @@ fn svd_tenrust() -> Result<()> {
         utensor,
         stensor,
         v_trans_tensor: vtensor,
-    } = atensor.svd(&[&i])?;
+    } = atensor.untruncated_svd(SVDIndices::Rows(&[&i]))?;
     let ans = utensor.dot(&stensor.dot(&vtensor)?)?;
     assert_close_l2!(&atensor.data, &ans.data, 1e-12);
+    assert!(&utensor.indices.iter().any(|x| x == &i));
+    assert!(&vtensor.indices.iter().any(|x| x == &j));
+    Ok(())
+}
+
+#[test]
+fn untruncated_svd_tenrust_reverse() -> Result<()> {
+    let i = Index::new(2);
+    let j = Index::new(4);
+    let atensor =
+        Tensor::<f64>::new(&[&i, &j]).with_data(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0])?;
+    let TensorSVD {
+        utensor,
+        stensor,
+        v_trans_tensor: vtensor,
+    } = atensor.untruncated_svd(SVDIndices::Cols(&[&i]))?;
+    let ans = utensor.dot(&stensor.dot(&vtensor)?)?;
+    assert_close_l2!(&atensor.data.t(), &ans.data, 1e-12);
+    assert!(&utensor.indices.iter().any(|x| x == &j));
+    assert!(&vtensor.indices.iter().any(|x| x == &i));
     Ok(())
 }
