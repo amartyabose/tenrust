@@ -71,6 +71,33 @@ impl<T: 'static + Clone + Copy + Num> Tensor<T> {
         )
     }
 
+    fn data_as_matrix_given_cols(&self, col_inds: &[&Index]) -> (Array<T, Ix2>, Vec<Index>) {
+        let mut my_inds_order = Vec::new();
+        let mut my_rows = 1;
+        let mut rows = Vec::new();
+        for (loc, ind) in (&self.indices).iter().enumerate() {
+            if !col_inds.contains(&ind) {
+                rows.push(ind);
+                my_inds_order.push(loc);
+                my_rows *= ind.dim;
+            }
+        }
+        let mut my_cols: u64 = 1;
+        for ind in col_inds {
+            my_cols *= ind.dim;
+            if let Some(loc) = self.indices.iter().position(|x| x == *ind) {
+                my_inds_order.push(loc);
+            }
+        }
+        let my_data = self.data.clone().permuted_axes(&my_inds_order[..]);
+        (
+            Array::from_iter(my_data.iter().cloned())
+                .into_shape(Ix2(my_rows as usize, my_cols as usize))
+                .unwrap(),
+            rows.iter().map(|x| (*x).clone()).collect::<Vec<_>>(),
+        )
+    }
+
     fn data_as_matrix(&self, row_inds: &[Index], col_inds: &[Index]) -> Array<T, Ix2> {
         let mut my_inds_order = Vec::new();
         let mut my_rows = 1;
