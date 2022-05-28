@@ -87,10 +87,12 @@ impl<T: 'static + Clone + Copy + Num> Tensor<T> {
 
         let my_data = self.data.clone().permuted_axes(&my_inds_order[..]);
         // let my_data = my_data.permuted_axes(&my_inds_order[..]);
-        let my_data = Array::from_iter(my_data.iter().cloned()).into_shape([my_rows as usize, my_cols as usize])?;
+        let my_data = Array::from_iter(my_data.iter().cloned())
+            .into_shape([my_rows as usize, my_cols as usize])?;
         let other_data = other.data.clone().permuted_axes(&other_inds_order[..]);
         // let other_data = other_data.permuted_axes(&other_inds_order[..]);
-        let other_data = Array::from_iter(other_data.iter().cloned()).into_shape([my_cols as usize, other_cols as usize])?;
+        let other_data = Array::from_iter(other_data.iter().cloned())
+            .into_shape([my_cols as usize, other_cols as usize])?;
         let result_data = my_data.dot(&other_data);
         let mut indices = Vec::new();
         for inds in &self_extra {
@@ -160,7 +162,7 @@ mod tensor_tests {
     fn build_tensor_with_data() {
         let i = Index::new(2);
         let j = Index::new(3);
-        let atensor_res = Tensor::new(&[&i, &j]).with_data(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
+        let atensor_res = Tensor::<f64>::new(&[&i, &j]).with_data(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
 
         assert!(atensor_res.is_ok());
         let atensor = atensor_res.unwrap();
@@ -172,7 +174,8 @@ mod tensor_tests {
     fn build_tensor_with_data_fail() {
         let i = Index::new(2);
         let j = Index::new(3);
-        let atensor_res = Tensor::new(&[&i, &j]).with_data(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]);
+        let atensor_res =
+            Tensor::<f64>::new(&[&i, &j]).with_data(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]);
 
         assert!(atensor_res.is_err());
     }
@@ -181,11 +184,20 @@ mod tensor_tests {
     fn access_tensor_elements() -> Result<()> {
         let i = Index::new(2);
         let j = Index::new(3);
-        let atensor = Tensor::new(&[&i, &j]).with_data(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0])?;
+        let atensor = Tensor::<f64>::new(&[&i, &j]).with_data(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0])?;
 
-        assert_eq!(atensor[&[IndexVal::new(&i, 0)?, IndexVal::new(&j, 0)?]], 1.0);
-        assert_eq!(atensor[&[IndexVal::new(&i, 1)?, IndexVal::new(&j, 0)?]], 4.0);
-        assert_eq!(atensor[&[IndexVal::new(&i, 0)?, IndexVal::new(&j, 1)?]], 2.0);
+        assert_eq!(
+            atensor[&[IndexVal::new(&i, 0)?, IndexVal::new(&j, 0)?]],
+            1.0
+        );
+        assert_eq!(
+            atensor[&[IndexVal::new(&i, 1)?, IndexVal::new(&j, 0)?]],
+            4.0
+        );
+        assert_eq!(
+            atensor[&[IndexVal::new(&i, 0)?, IndexVal::new(&j, 1)?]],
+            2.0
+        );
         Ok(())
     }
 
@@ -194,14 +206,11 @@ mod tensor_tests {
         let i = Index::new(2);
         let j = Index::new(3);
         let k = Index::new(2);
-        let atensor = Tensor::new(&[&i, &j]).with_data(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0])?;
-        let btensor = Tensor::new(&[&j, &k]).with_data(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0])?;
+        let atensor = Tensor::<f64>::new(&[&i, &j]).with_data(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0])?;
+        let btensor = Tensor::<f64>::new(&[&j, &k]).with_data(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0])?;
         let ctensor = atensor.dot(&btensor)?;
-        dbg!(&atensor);
-        dbg!(&btensor);
-        dbg!(&ctensor);
         let anses = vec![22.0, 28.0, 49.0, 64.0];
-        let ans = Array::from_vec(anses);
+        let ans = ndarray::Array::from(anses);
         let ans = ans.into_shape(IxDyn(&[2, 2]))?;
         assert_close_l2!(&ctensor.data, &ans, 1e-12);
         Ok(())
