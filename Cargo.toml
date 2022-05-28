@@ -14,7 +14,7 @@ name = "main"
 path = "src/main.rs"
 
 [dependencies]
-ndarray = "0.14"
+ndarray = "0.15.4"
 ndarray-linalg = { version = "0.14.1", features = ["openblas-system"] }
 num = "0.4.0"
 rand = "0.8.5"

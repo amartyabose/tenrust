@@ -4,21 +4,8 @@ fn main() -> tenrust::error::Result<()> {
     let i = index::Index::new(2).add_tag("i");
     let j = index::Index::new(2).add_tag("j");
     // let k = index::Index::new(2).add_tag("k");
-    let atensor = tensor::Tensor::<f64>::new(&[&i, &j]).with_data(&[1., 2., 3., 4.])?;
+    let atensor = tensor::Tensor::new(&[&i, &j]).with_data(&[1., 2., 3., 4.])?;
     println!("{:#?}", &atensor);
-    let data = atensor.data.clone();
-    let dat = data.clone().permuted_axes(ndarray::IxDyn(&[1 as usize, 0]));
-    // println!("{}", dat);
-    // println!("{}", data);
-    // println!("{}", data.dot(&dat));
-         let a2 = ndarray::arr2(&[[1, 2, 3],
-                     [4, 5, 6],
-                     [7, 8, 9]]);
-         let b2 = ndarray::arr2(&[[1, 2, 3],
-                     [4, 5, 6],
-                     [7, 8, 9]]);
- let ans = a2.dot(&b2);
-
 
     //    let mut atensor = tensor::Tensor::new(vec![&i, &j]);
     //    let mut val = 1f64;

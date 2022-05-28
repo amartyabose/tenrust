@@ -4,16 +4,15 @@ use crate::index::*;
 use std::collections::HashSet;
 
 use ndarray::*;
-use ndarray_linalg::*;
 use num::Num;
 
 #[derive(Debug)]
-pub struct Tensor<T: Num + Clone + std::fmt::Debug> {
+pub struct Tensor<T: 'static + Clone + Copy + Num> {
     pub indices: Vec<Index>,
     pub data: ArrayD<T>,
 }
 
-impl<T: Num + Clone + std::fmt::Debug> Tensor<T> {
+impl<T: 'static + Clone + Copy + Num> Tensor<T> {
     pub fn new(inds: &[&Index]) -> Tensor<T> {
         let indices = inds.to_vec();
         let shape_vec = (&indices)
@@ -29,16 +28,16 @@ impl<T: Num + Clone + std::fmt::Debug> Tensor<T> {
 
     pub fn with_data(mut self, dat: &[T]) -> Result<Tensor<T>> {
         if dat.len() as usize == self.data.len() {
-            let tmp = Array::from_iter(dat.iter().cloned());
+            let tmp = Array::<T, Ix1>::from_iter(dat.iter().cloned());
             self.data = tmp.into_shape(self.data.shape())?;
             Ok(self)
         } else {
-            Err(TenRustError::DimensionMismatch("Tensor<T>::with_data"))
+            Err(TenRustError::DimensionMismatch("Tensor::with_data"))
         }
     }
 
     pub fn with_data_from_iter(mut self, dat: impl IntoIterator<Item = T>) -> Result<Tensor<T>> {
-        let tmp = Array::from_iter(dat);
+        let tmp = Array::<T, Ix1>::from_iter(dat);
         self.data = tmp.into_shape(self.data.shape())?;
         Ok(self)
     }
@@ -86,11 +85,11 @@ impl<T: Num + Clone + std::fmt::Debug> Tensor<T> {
             }
         }
 
-        let my_data = self.data.clone();
-        let my_data = my_data.permuted_axes(&my_inds_order[..]);
+        let my_data = self.data.clone().permuted_axes(&my_inds_order[..]);
+        // let my_data = my_data.permuted_axes(&my_inds_order[..]);
         let my_data = Array::from_iter(my_data.iter().cloned()).into_shape([my_rows as usize, my_cols as usize])?;
-        let other_data = other.data.clone();
-        let other_data = other_data.permuted_axes(&other_inds_order[..]);
+        let other_data = other.data.clone().permuted_axes(&other_inds_order[..]);
+        // let other_data = other_data.permuted_axes(&other_inds_order[..]);
         let other_data = Array::from_iter(other_data.iter().cloned()).into_shape([my_cols as usize, other_cols as usize])?;
         let result_data = my_data.dot(&other_data);
         let mut indices = Vec::new();
@@ -101,11 +100,11 @@ impl<T: Num + Clone + std::fmt::Debug> Tensor<T> {
             indices.push(inds);
         }
 
-        Ok(Tensor::new(&indices[..]).with_data_from_iter(result_data.iter()))
+        Tensor::new(&indices[..]).with_data_from_iter(result_data.iter().cloned())
     }
 }
 
-impl<T: Num + Clone + std::fmt::Debug> std::ops::Index<&[IndexVal]> for Tensor<T> {
+impl<T: 'static + Clone + Copy + Num> std::ops::Index<&[IndexVal]> for Tensor<T> {
     type Output = T;
 
     fn index(&self, inds: &[IndexVal]) -> &Self::Output {
@@ -124,7 +123,7 @@ impl<T: Num + Clone + std::fmt::Debug> std::ops::Index<&[IndexVal]> for Tensor<T
     }
 }
 
-impl<T: Num + Clone + std::fmt::Debug> std::ops::IndexMut<&[IndexVal]> for Tensor<T> {
+impl<T: 'static + Clone + Copy + Num> std::ops::IndexMut<&[IndexVal]> for Tensor<T> {
     fn index_mut(&mut self, inds: &[IndexVal]) -> &mut Self::Output {
         if inds.len() != self.indices.len() {
             panic!(
@@ -143,6 +142,8 @@ impl<T: Num + Clone + std::fmt::Debug> std::ops::IndexMut<&[IndexVal]> for Tenso
 
 #[cfg(test)]
 mod tensor_tests {
+    use ndarray_linalg::assert_close_l2;
+
     use crate::tensor::*;
 
     #[test]
@@ -159,7 +160,7 @@ mod tensor_tests {
     fn build_tensor_with_data() {
         let i = Index::new(2);
         let j = Index::new(3);
-        let atensor_res = Tensor::<u64>::new(&[&i, &j]).with_data(&[1, 2, 3, 4, 5, 6]);
+        let atensor_res = Tensor::new(&[&i, &j]).with_data(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
 
         assert!(atensor_res.is_ok());
         let atensor = atensor_res.unwrap();
@@ -171,7 +172,7 @@ mod tensor_tests {
     fn build_tensor_with_data_fail() {
         let i = Index::new(2);
         let j = Index::new(3);
-        let atensor_res = Tensor::<u64>::new(&[&i, &j]).with_data(&[1, 2, 3, 4, 5, 6, 7, 8]);
+        let atensor_res = Tensor::new(&[&i, &j]).with_data(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]);
 
         assert!(atensor_res.is_err());
     }
@@ -180,11 +181,11 @@ mod tensor_tests {
     fn access_tensor_elements() -> Result<()> {
         let i = Index::new(2);
         let j = Index::new(3);
-        let atensor = Tensor::<u64>::new(&[&i, &j]).with_data(&[1, 2, 3, 4, 5, 6])?;
+        let atensor = Tensor::new(&[&i, &j]).with_data(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0])?;
 
-        assert_eq!(atensor[&[IndexVal::new(&i, 0)?, IndexVal::new(&j, 0)?]], 1);
-        assert_eq!(atensor[&[IndexVal::new(&i, 1)?, IndexVal::new(&j, 0)?]], 4);
-        assert_eq!(atensor[&[IndexVal::new(&i, 0)?, IndexVal::new(&j, 1)?]], 2);
+        assert_eq!(atensor[&[IndexVal::new(&i, 0)?, IndexVal::new(&j, 0)?]], 1.0);
+        assert_eq!(atensor[&[IndexVal::new(&i, 1)?, IndexVal::new(&j, 0)?]], 4.0);
+        assert_eq!(atensor[&[IndexVal::new(&i, 0)?, IndexVal::new(&j, 1)?]], 2.0);
         Ok(())
     }
 
@@ -193,13 +194,16 @@ mod tensor_tests {
         let i = Index::new(2);
         let j = Index::new(3);
         let k = Index::new(2);
-        let atensor = Tensor::<u64>::new(&[&i, &j]).with_data(&[1, 2, 3, 4, 5, 6])?;
-        let btensor = Tensor::<u64>::new(&[&j, &k]).with_data(&[1, 2, 3, 4, 5, 6])?;
-        atensor.dot(&btensor);
-
-        assert_eq!(atensor[&[IndexVal::new(&i, 0)?, IndexVal::new(&j, 0)?]], 1);
-        assert_eq!(atensor[&[IndexVal::new(&i, 1)?, IndexVal::new(&j, 0)?]], 4);
-        assert_eq!(atensor[&[IndexVal::new(&i, 0)?, IndexVal::new(&j, 1)?]], 2);
+        let atensor = Tensor::new(&[&i, &j]).with_data(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0])?;
+        let btensor = Tensor::new(&[&j, &k]).with_data(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0])?;
+        let ctensor = atensor.dot(&btensor)?;
+        dbg!(&atensor);
+        dbg!(&btensor);
+        dbg!(&ctensor);
+        let anses = vec![22.0, 28.0, 49.0, 64.0];
+        let ans = Array::from_vec(anses);
+        let ans = ans.into_shape(IxDyn(&[2, 2]))?;
+        assert_close_l2!(&ctensor.data, &ans, 1e-12);
         Ok(())
     }
 }
