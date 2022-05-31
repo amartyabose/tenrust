@@ -1,3 +1,5 @@
+use std::ops::AddAssign;
+
 use crate::error::*;
 use crate::index::*;
 use crate::tensor::*;
@@ -5,8 +7,11 @@ use crate::tensor::*;
 use ndarray::*;
 use ndarray_linalg::Lapack;
 use ndarray_linalg::SVD;
-use num::Num;
+use num::One;
+use num::{Num, Zero};
 
+/// Struct for holding the output of the singular value decomposition.
+/// T = U * S * V^T
 pub struct TensorSVD<T: 'static + Clone + Copy + Num + Lapack> {
     utensor: Tensor<T>,
     stensor: Tensor<<T as ndarray_linalg::Scalar>::Real>,
@@ -32,7 +37,7 @@ pub enum SVDIndices<'a> {
     Cols(&'a [&'a Index]),
 }
 
-impl<T: 'static + Clone + Copy + Num + Lapack> Tensor<T> {
+impl<T: 'static + Clone + Copy + Num + Lapack + AddAssign + Zero + One> Tensor<T> {
     fn transform_to_matrix(&self, svd_inds: SVDIndices) -> (Array2<T>, Vec<Index>, Vec<Index>) {
         match svd_inds {
             SVDIndices::Rows(rows) => {
@@ -54,12 +59,43 @@ impl<T: 'static + Clone + Copy + Num + Lapack> Tensor<T> {
         }
     }
 
-    pub fn untruncated_svd(&self, svd_inds: SVDIndices) -> Result<TensorSVD<T>> {
+    pub fn svd(
+        &self,
+        svd_inds: SVDIndices,
+        cutoff: Option<T::Real>,
+        maxdim: Option<usize>,
+    ) -> Result<TensorSVD<T>> {
         let (mat, mut row_inds, mut col_inds) = self.transform_to_matrix(svd_inds);
         let svddat = mat.svd(true, true)?;
         let (uopt, sdiag, vtopt) = svddat;
         let umat = uopt.ok_or(TenRustError::SVDError)?;
         let vmat = vtopt.ok_or(TenRustError::SVDError)?;
+        let sdiag = if let Some(cutoff_val) = cutoff {
+            let sum_sdiag_sq = &sdiag.dot(&sdiag);
+            let sdiag_sq = &sdiag * &sdiag;
+            let mut num_diags = 0usize;
+            let mut sum_diags_sq_progressive = T::Real::zero();
+            let one_minus_cutoff = T::Real::one() - cutoff_val;
+            for (i, svalsq) in sdiag_sq.iter().enumerate() {
+                sum_diags_sq_progressive += *svalsq as T::Real;
+                if sum_diags_sq_progressive / *sum_sdiag_sq >= one_minus_cutoff {
+                    num_diags = i + 1;
+                    break;
+                }
+            }
+            sdiag.slice(s![..num_diags]).to_owned()
+        } else {
+            sdiag
+        };
+        let sdiag = if let Some(maxdim_val) = maxdim {
+            if sdiag.shape()[0] <= maxdim_val {
+                sdiag
+            } else {
+                sdiag.slice(s![..maxdim_val]).to_owned()
+            }
+        } else {
+            sdiag
+        };
         // We want minimum storage in case of non-square matrices:
         // A = [[1, 2, 3],
         //      [4, 5, 6]]
@@ -105,15 +141,17 @@ mod singular_value_tests {
 
     #[test]
     fn untruncated_svd_tenrust_normal() -> Result<()> {
-        let i = Index::new(2);
+        let i = Index::new(4);
         let j = Index::new(4);
-        let atensor =
-            Tensor::<f64>::new(&[&i, &j]).with_data(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0])?;
+        let atensor = Tensor::<f64>::new(&[&i, &j]).with_data(&[
+            1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0,
+        ])?;
         let TensorSVD {
             utensor,
             stensor,
             v_trans_tensor: vtensor,
-        } = atensor.untruncated_svd(SVDIndices::Rows(&[&i]))?;
+        } = atensor.svd(SVDIndices::Rows(&[&i]), None, None)?;
+        dbg!(&stensor.data);
         let ans = utensor.dot(&stensor.dot(&vtensor)?)?;
         assert_close_l2!(&atensor.data, &ans.data, 1e-12);
         assert!(&utensor.indices.iter().any(|x| x == &i));
@@ -123,19 +161,64 @@ mod singular_value_tests {
 
     #[test]
     fn untruncated_svd_tenrust_reverse() -> Result<()> {
-        let i = Index::new(2);
+        let i = Index::new(4);
         let j = Index::new(4);
-        let atensor =
-            Tensor::<f64>::new(&[&i, &j]).with_data(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0])?;
+        let atensor = Tensor::<f64>::new(&[&i, &j]).with_data(&[
+            1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0,
+        ])?;
         let TensorSVD {
             utensor,
             stensor,
             v_trans_tensor: vtensor,
-        } = atensor.untruncated_svd(SVDIndices::Cols(&[&i]))?;
+        } = atensor.svd(SVDIndices::Cols(&[&i]), None, None)?;
         let ans = utensor.dot(&stensor.dot(&vtensor)?)?;
         assert_close_l2!(&atensor.data.t(), &ans.data, 1e-12);
         assert!(&utensor.indices.iter().any(|x| x == &j));
         assert!(&vtensor.indices.iter().any(|x| x == &i));
+        Ok(())
+    }
+
+    #[test]
+    fn maxdim_truncated_svd() -> Result<()> {
+        let i = Index::new(4);
+        let j = Index::new(4);
+        let atensor = Tensor::<f64>::new(&[&i, &j]).with_data(&[
+            1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0,
+        ])?;
+        let TensorSVD {
+            utensor,
+            stensor,
+            v_trans_tensor: vtensor,
+        } = atensor.svd(SVDIndices::Rows(&[&i]), None, Some(2))?;
+        let ans = utensor.dot(&stensor.dot(&vtensor)?)?;
+        dbg!(&stensor.data);
+        assert_close_l2!(&atensor.data, &ans.data, 1e-12);
+        assert!(&utensor.indices.iter().any(|x| x == &i));
+        assert!(&vtensor.indices.iter().any(|x| x == &j));
+        assert!(stensor.indices[0].dim <= 3);
+        assert!(stensor.indices[1].dim <= 3);
+        Ok(())
+    }
+
+    #[test]
+    fn cutoff_truncated_svd() -> Result<()> {
+        let i = Index::new(4);
+        let j = Index::new(4);
+        let atensor = Tensor::<f64>::new(&[&i, &j]).with_data(&[
+            1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0,
+        ])?;
+        let TensorSVD {
+            utensor,
+            stensor,
+            v_trans_tensor: vtensor,
+        } = atensor.svd(SVDIndices::Rows(&[&i]), Some(1e-14), None)?;
+        let ans = utensor.dot(&stensor.dot(&vtensor)?)?;
+        dbg!(&stensor.data);
+        assert_close_l2!(&atensor.data, &ans.data, 1e-12);
+        assert!(&utensor.indices.iter().any(|x| x == &i));
+        assert!(&vtensor.indices.iter().any(|x| x == &j));
+        assert!(stensor.indices[0].dim <= 3);
+        assert!(stensor.indices[1].dim <= 3);
         Ok(())
     }
 }
