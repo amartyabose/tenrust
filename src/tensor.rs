@@ -1,12 +1,15 @@
+use std::collections::HashSet;
+
 use crate::error::*;
 use crate::index::*;
 
 use ndarray::*;
 use num::Num;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Tensor<T: 'static + Clone + Copy + Num> {
     pub indices: Vec<Index>,
+    pub indices_set: HashSet<Index>,
     pub data: ArrayD<T>,
 }
 
@@ -20,6 +23,11 @@ impl<T: 'static + Clone + Copy + Num> Tensor<T> {
         let shape = &shape_vec[..shape_vec.len()];
         Tensor {
             indices: indices.into_iter().cloned().collect::<Vec<Index>>(),
+            indices_set: inds
+                .to_vec()
+                .into_iter()
+                .cloned()
+                .collect::<HashSet<Index>>(),
             data: ArrayD::<T>::zeros(IxDyn(shape)),
         }
     }
@@ -32,6 +40,7 @@ impl<T: 'static + Clone + Copy + Num> Tensor<T> {
         let shape = &shape_vec[..shape_vec.len()];
         Tensor {
             indices: indices.to_vec(),
+            indices_set: indices.to_vec().into_iter().collect::<HashSet<Index>>(),
             data: ArrayD::<T>::zeros(IxDyn(shape)),
         }
     }
@@ -163,6 +172,17 @@ impl<T: 'static + Clone + Copy + Num> std::ops::IndexMut<&[IndexVal]> for Tensor
         }
         &mut self.data[&loc_vec[..]]
     }
+}
+
+pub fn common_indices<T: 'static + Copy + Clone + Num>(
+    tens1: &Tensor<T>,
+    tens2: &Tensor<T>,
+) -> Vec<Index> {
+    tens1
+        .indices_set
+        .intersection(&tens2.indices_set)
+        .cloned()
+        .collect::<Vec<_>>()
 }
 
 #[cfg(test)]

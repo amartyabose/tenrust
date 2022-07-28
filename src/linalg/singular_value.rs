@@ -13,17 +13,13 @@ use num::{Num, Zero};
 /// Struct for holding the output of the singular value decomposition.
 /// T = U * S * V^T
 pub struct TensorSVD<T: 'static + Clone + Copy + Num + Lapack> {
-    utensor: Tensor<T>,
-    stensor: Tensor<<T as ndarray_linalg::Scalar>::Real>,
-    v_trans_tensor: Tensor<T>,
+    pub utensor: Tensor<T>,
+    pub stensor: Tensor<T>,
+    pub v_trans_tensor: Tensor<T>,
 }
 
 impl<T: 'static + Clone + Copy + Num + Lapack> TensorSVD<T> {
-    pub fn new(
-        uparam: Tensor<T>,
-        sparam: Tensor<<T as ndarray_linalg::Scalar>::Real>,
-        vparam: Tensor<T>,
-    ) -> TensorSVD<T> {
+    pub fn new(uparam: Tensor<T>, sparam: Tensor<T>, vparam: Tensor<T>) -> TensorSVD<T> {
         TensorSVD {
             utensor: uparam,
             stensor: sparam,
@@ -116,12 +112,11 @@ impl<T: 'static + Clone + Copy + Num + Lapack + AddAssign + Zero + One> Tensor<T
                 .iter()
                 .copied(),
         )?;
-        let mut stensor =
-            Tensor::<<T as ndarray_linalg::Scalar>::Real>::new(&[&linkind0, &linkind1]);
+        let mut stensor = Tensor::<T>::new(&[&linkind0, &linkind1]);
         for (ind, sval) in sdiag.iter().enumerate() {
             let i0val = IndexVal::new(&linkind0, ind as u64)?;
             let i1val = IndexVal::new(&linkind1, ind as u64)?;
-            stensor[&[i0val, i1val]] = *sval;
+            stensor[&[i0val, i1val]] = ndarray_linalg::Scalar::from_real(*sval);
         }
         col_inds.insert(0, linkind1);
         let vtensor = Tensor::<T>::new_owned(&col_inds).with_data_from_iter(

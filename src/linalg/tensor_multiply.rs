@@ -1,24 +1,19 @@
 use crate::error::*;
 use crate::tensor::*;
 
-use std::collections::HashSet;
-
 use num::Num;
 
 impl<T: 'static + Clone + Copy + Num> Tensor<T> {
     pub fn dot(&self, other: &Tensor<T>) -> Result<Tensor<T>> {
-        let self_inds = self.indices.iter().cloned().collect::<HashSet<_>>();
-        let other_inds = other.indices.iter().cloned().collect::<HashSet<_>>();
-        let common_inds = self_inds
-            .intersection(&other_inds)
+        let common_inds = common_indices(self, other);
+        let self_extra = self
+            .indices_set
+            .difference(&other.indices_set)
             .cloned()
             .collect::<Vec<_>>();
-        let self_extra = self_inds
-            .difference(&other_inds)
-            .cloned()
-            .collect::<Vec<_>>();
-        let other_extra = other_inds
-            .difference(&self_inds)
+        let other_extra = other
+            .indices_set
+            .difference(&&self.indices_set)
             .cloned()
             .collect::<Vec<_>>();
 

@@ -5,9 +5,10 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
-[lib]
-name = "tenrust"
-path = "src/lib.rs"
+[features]
+netlib    = ["ndarray-linalg/netlib"]
+openblas  = ["ndarray-linalg/openblas"]
+intel-mkl = ["ndarray-linalg/intel-mkl"]
 
 [dependencies]
 ndarray = "0.14"
