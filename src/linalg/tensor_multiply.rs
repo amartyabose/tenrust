@@ -13,7 +13,7 @@ impl<T: 'static + Clone + Copy + Num> Tensor<T> {
             .collect::<Vec<_>>();
         let other_extra = other
             .indices_set
-            .difference(&&self.indices_set)
+            .difference(&self.indices_set)
             .cloned()
             .collect::<Vec<_>>();
 

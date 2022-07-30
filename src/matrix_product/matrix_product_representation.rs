@@ -1,6 +1,9 @@
 use crate::error::*;
+
+use crate::index::Index;
 use crate::linalg::singular_value::*;
 use crate::tensor::*;
+use std::iter::zip;
 
 use ndarray_linalg::Lapack;
 use num::Num;
@@ -10,13 +13,55 @@ pub struct MatrixProduct<T: 'static + Clone + Copy + Num> {
     pub tensors: Vec<Tensor<T>>,
 }
 
-impl<T: 'static + Clone + Copy + Num> MatrixProduct<T> {
+impl<T: 'static + Clone + Copy + Num + Lapack> MatrixProduct<T> {
     pub fn get_tensor(&self) -> Result<Tensor<T>> {
         let mut tens = self.tensors.first().cloned().unwrap();
-        for tensor in (&self.tensors).into_iter().skip(1) {
+        for tensor in self.tensors.iter().skip(1) {
             tens = tens.dot(tensor)?;
         }
         Ok(tens)
+    }
+
+    pub fn link_indices(&self) -> Vec<Index> {
+        let mut indices = common_indices(&self.tensors[0], &self.tensors[1]);
+        for (a, b) in zip(self.tensors.iter().skip(1), self.tensors.iter().skip(2)) {
+            let mut inds = common_indices(a, b);
+            indices.append(&mut inds);
+        }
+        indices
+    }
+
+    pub fn recompress(
+        self,
+        cutoff: Option<T::Real>,
+        maxdim: Option<usize>,
+    ) -> Result<MatrixProduct<T>> {
+        let TensorSVD {
+            utensor,
+            stensor,
+            v_trans_tensor: vtensor,
+        } = self.tensors[0].svd(
+            SVDIndices::Rows(&[&self.tensors[0].indices[0]]),
+            cutoff,
+            maxdim,
+        )?;
+        let mut mps = vec![utensor];
+        let mut vnew = stensor.dot(&vtensor.dot(&self.tensors[1])?)?;
+        for _n in 2..self.tensors.len() {
+            let TensorSVD {
+                utensor,
+                stensor,
+                v_trans_tensor: vtensor,
+            } = vnew.svd(
+                SVDIndices::Rows(&[&vnew.indices[0], &vnew.indices[1]]),
+                cutoff,
+                maxdim,
+            )?;
+            mps.push(utensor);
+            vnew = stensor.dot(&vtensor.dot(&self.tensors[1])?)?;
+        }
+        mps.push(vnew);
+        Ok(MatrixProduct { tensors: mps })
     }
 }
 
@@ -41,12 +86,15 @@ where
         let mut vnew = stensor.dot(&vtensor)?;
         let mut mps = vec![utensor];
         for _n in 2..atensor.indices.len() {
-            dbg!(&vnew.indices[0]);
             let TensorSVD {
                 utensor,
                 stensor,
                 v_trans_tensor: vtensor,
-            } = vnew.svd(SVDIndices::Rows(&[&vnew.indices[0]]), cutoff, maxdim)?;
+            } = vnew.svd(
+                SVDIndices::Rows(&[&vnew.indices[0], &vnew.indices[1]]),
+                cutoff,
+                maxdim,
+            )?;
             mps.push(utensor);
             vnew = stensor.dot(&vtensor)?;
         }
@@ -100,6 +148,21 @@ mod mp_representation_tests {
             &atensor_mult.data_as_matrix(&[i, j], &[k]),
             1e-12
         );
+        Ok(())
+    }
+
+    #[test]
+    fn three_index_mp_get_link() -> Result<()> {
+        let i = Index::new(2);
+        let j = Index::new(2);
+        let k = Index::new(2);
+        let atensor =
+            Tensor::<f64>::new(&[&i, &j, &k]).with_data(&[1., 2., 3., 4., 5., 6., 7., 8.])?;
+        let atensor_mps = mp_representation(&atensor, Some(1e-5), Some(20))?;
+        let link_inds = atensor_mps.link_indices();
+        link_inds
+            .iter()
+            .for_each(|li| assert_eq!(li.tags, "S_Link"));
         Ok(())
     }
 }

@@ -15,19 +15,17 @@ pub struct Tensor<T: 'static + Clone + Copy + Num> {
 
 impl<T: 'static + Clone + Copy + Num> Tensor<T> {
     pub fn new(inds: &[&Index]) -> Tensor<T> {
-        let indices = inds.to_vec();
-        let shape_vec = (&indices)
+        let shape_vec = inds
             .iter()
+            .cloned()
             .map(|x| x.dim as usize)
             .collect::<Vec<usize>>();
         let shape = &shape_vec[..shape_vec.len()];
+        let indices = inds.iter().map(|x| (*x).clone());
+        let indices2 = indices.clone();
         Tensor {
-            indices: indices.into_iter().cloned().collect::<Vec<Index>>(),
-            indices_set: inds
-                .to_vec()
-                .into_iter()
-                .cloned()
-                .collect::<HashSet<Index>>(),
+            indices: indices.collect::<Vec<Index>>(),
+            indices_set: indices2.collect::<HashSet<Index>>(),
             data: ArrayD::<T>::zeros(IxDyn(shape)),
         }
     }
@@ -40,7 +38,7 @@ impl<T: 'static + Clone + Copy + Num> Tensor<T> {
         let shape = &shape_vec[..shape_vec.len()];
         Tensor {
             indices: indices.to_vec(),
-            indices_set: indices.to_vec().into_iter().collect::<HashSet<Index>>(),
+            indices_set: indices.iter().cloned().collect::<HashSet<Index>>(),
             data: ArrayD::<T>::zeros(IxDyn(shape)),
         }
     }
