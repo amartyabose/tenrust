@@ -134,6 +134,21 @@ impl<T: 'static + Clone + Copy + Num> Tensor<T> {
             .into_shape(Ix2(my_rows as usize, my_cols as usize))
             .unwrap()
     }
+
+    pub fn is_scalar(&self) -> bool {
+        self.indices.is_empty()
+    }
+
+    pub fn as_scalar(&self) -> Result<T> {
+        if self.is_scalar() {
+            self.data
+                .first()
+                .cloned()
+                .ok_or(TenRustError::DimensionMismatch("Tensor is not a scalar."))
+        } else {
+            Err(TenRustError::DimensionMismatch("Tensor is not a scalar."))
+        }
+    }
 }
 
 impl<T: 'static + Clone + Copy + Num> std::ops::Index<&[IndexVal]> for Tensor<T> {

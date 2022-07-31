@@ -16,6 +16,7 @@ ndarray-linalg = "0.13"
 num = "0.4.0"
 rand = "0.8.5"
 thiserror = "1.0.31"
+approx = "*"
 
 [dev-dependencies]
 ndarray = "0.14"
@@ -23,3 +24,4 @@ ndarray-linalg = {version = "0.13", features = ["openblas-system"]}
 num = "0.4.0"
 rand = "0.8.5"
 thiserror = "1.0.31"
+approx = "*"
