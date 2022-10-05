@@ -8,29 +8,44 @@ use std::iter::zip;
 use ndarray_linalg::Lapack;
 use num::Num;
 
-#[derive(Debug)]
-pub struct MatrixProduct<T: 'static + Clone + Copy + Num> {
-    pub tensors: Vec<Tensor<T>>,
-}
+pub trait TensorTrain<T: 'static + Clone + Copy + Num> {
+    fn get_tensors(&self) -> &Vec<Tensor<T>>;
 
-impl<T: 'static + Clone + Copy + Num + Lapack> MatrixProduct<T> {
-    pub fn get_tensor(&self) -> Result<Tensor<T>> {
-        let mut tens = self.tensors.first().cloned().unwrap();
-        for tensor in self.tensors.iter().skip(1) {
+    fn get_tensor(&self) -> Result<Tensor<T>> {
+        let tensors = self.get_tensors();
+        let mut tens = tensors.first().cloned().unwrap();
+        for tensor in tensors.iter().skip(1) {
             tens = tens.dot(tensor)?;
         }
         Ok(tens)
     }
 
-    pub fn link_indices(&self) -> Vec<Index> {
-        let mut indices = common_indices(&self.tensors[0], &self.tensors[1]);
-        for (a, b) in zip(self.tensors.iter().skip(1), self.tensors.iter().skip(2)) {
+    fn link_indices(&self) -> Vec<Index> {
+        let tensors = self.get_tensors();
+        let mut indices = Vec::new();
+        for (a, b) in zip(tensors.iter(), tensors.iter().skip(1)) {
             let mut inds = common_indices(a, b);
             indices.append(&mut inds);
         }
         indices
     }
+}
 
+#[derive(Debug)]
+pub struct MatrixProduct<T: 'static + Clone + Copy + Num> {
+    pub tensors: Vec<Tensor<T>>,
+}
+
+impl<T> TensorTrain<T> for MatrixProduct<T>
+where
+    T: 'static + Clone + Copy + Num,
+{
+    fn get_tensors(&self) -> &Vec<Tensor<T>> {
+        &self.tensors
+    }
+}
+
+impl<T: 'static + Clone + Copy + Num + Lapack> MatrixProduct<T> {
     pub fn recompress(
         self,
         cutoff: Option<T::Real>,
